@@ -23,6 +23,8 @@
 
 package logger
 
+import "log"
+
 // Logger is a universal logging interface that can be
 // flexibly replaced with other logging libraies
 // without interfering with the operational logic
@@ -54,48 +56,53 @@ type Config struct {
 	MaxAge     int
 }
 
-var log Logger
+var l Logger
 
-func SetLogger(l Logger) {
-	log = l
+func SetLogger(log Logger) {
+	l = log
 }
 
 func Debug(format string, args ...interface{}) {
-	if log == nil {
+	if l == nil {
+		log.Printf(format, args...)
 		return
 	}
 
-	log.Debug(format, args...)
+	l.Debug(format, args...)
 }
 
 func Info(format string, args ...interface{}) {
-	if log == nil {
+	if l == nil {
+		log.Printf(format, args...)
 		return
 	}
 
-	log.Info(format, args...)
+	l.Info(format, args...)
 }
 
 func Warn(format string, args ...interface{}) {
-	if log == nil {
+	if l == nil {
+		log.Printf(format, args...)
 		return
 	}
 
-	log.Warn(format, args...)
+	l.Warn(format, args...)
 }
 
 func Error(format string, args ...interface{}) {
-	if log == nil {
+	if l == nil {
+		log.Printf(format, args...)
 		return
 	}
 
-	log.Error(format, args...)
+	l.Error(format, args...)
 }
 
 func Fatal(format string, args ...interface{}) {
-	if log == nil {
+	if l == nil {
+		log.Fatalf(format, args...)
 		return
 	}
 
-	log.Fatal(format, args...)
+	l.Fatal(format, args...)
 }

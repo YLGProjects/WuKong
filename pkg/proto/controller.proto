@@ -21,16 +21,17 @@
  *SOFTWARE.
 **/
 
-package controller
+syntax = "proto3";
+option go_package = ".;proto";
 
-import (
-	"YLGProjects/WuKong/internal/controller/service"
+message RegisterAgentRequest
+{
+   string AgentID = 1;
+}
 
-	"github.com/spf13/cobra"
-)
-
-func Run(cmd *cobra.Command, args []string) error {
-	svr := service.New(":26688", "")
-
-	return svr.Run()
+message RegisterAgentResponse
+{
+  int32  Code    = 1;
+  string Message = 2;
+  string AgentID = 3;
 }

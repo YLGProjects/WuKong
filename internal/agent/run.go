@@ -23,8 +23,22 @@
 
 package agent
 
-import "github.com/spf13/cobra"
+import (
+	"YLGProjects/WuKong/internal/agent/client"
+	"YLGProjects/WuKong/pkg/logger"
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func Run(cmd *cobra.Command, args []string) error {
-	return nil
+
+	client, err := client.New("127.0.0.1:26688", "client-12345")
+	if err != nil {
+		logger.Fatal("Failed to create client: %v", err)
+	}
+
+	ctx := context.Background()
+
+	return client.Run(ctx)
 }

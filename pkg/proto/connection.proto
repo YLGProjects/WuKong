@@ -22,22 +22,26 @@
 **/
 
 syntax = "proto3";
+option go_package = ".;proto";
 
-option go_package = ".;comm";
-
-enum MessageType
-{
-   Heartbeat = 0;
+message DataMessage {
+  bytes               Content   = 1;
+  uint64              Timestamp = 2;
+  map<string, string> Headers   = 3;
 }
 
-message MessageData
-{
-  MessageType type = 1;
-  bytes       payload = 2;
-
+message PushRequest {
+  string      ClientID = 1;
+  DataMessage Message  = 2;
 }
 
-service StreamService
-{
-   rpc StreamChannel(stream MessageData) returns (stream MessageData){}
+message PushResponse {
+  int32  Status  = 1;
+  string Message = 2;
 }
+
+service ConnectionService {
+  rpc Connect(stream DataMessage) returns (stream DataMessage);
+  rpc PushMessage(PushRequest) returns (PushResponse);
+}
+
