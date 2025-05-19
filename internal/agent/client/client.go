@@ -39,22 +39,54 @@ import (
 )
 
 type Client struct {
-	conn     *grpc.ClientConn
-	client   proto.ConnectionServiceClient
-	stream   proto.ConnectionService_ConnectClient
-	ctx      context.Context
-	cancel   context.CancelFunc
-	clientID string
-	mu       sync.RWMutex
-	closed   bool
-
-	messageHandler func(*proto.DataMessage)
-
-	// 重连相关
+	conn                 *grpc.ClientConn
+	client               proto.ConnectionServiceClient
+	stream               proto.ConnectionService_ConnectClient
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	clientID             string
+	mu                   sync.RWMutex
+	closed               bool
+	messageHandler       func(*proto.DataMessage)
 	reconnecting         bool
 	reconnectInterval    time.Duration
 	maxReconnectAttempts int
 	reconnectAttempts    int
+}
+
+func New(ctx context.Context, serverAddr string, clientID string) (*Client, error) {
+
+	kacp := keepalive.ClientParameters{
+		Time:                10 * time.Second, // ping the server every 10 seconds
+		Timeout:             3 * time.Second,  // ping timeout
+		PermitWithoutStream: true,             // enable send a ping command
+	}
+
+	conn, err := grpc.NewClient(
+		serverAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithKeepaliveParams(kacp),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(10*1024*1024),
+			grpc.MaxCallSendMsgSize(10*1024*1024),
+		),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	ctxCancel, cancel := context.WithCancel(ctx)
+
+	return &Client{
+		conn:                 conn,
+		client:               proto.NewConnectionServiceClient(conn),
+		ctx:                  ctxCancel,
+		cancel:               cancel,
+		clientID:             clientID,
+		reconnectInterval:    5 * time.Second,
+		maxReconnectAttempts: 10,
+	}, nil
 }
 
 func (c *Client) connect() error {
@@ -143,10 +175,8 @@ func (c *Client) monitorConnection() {
 				c.mu.RUnlock()
 				return
 			}
-
-			state := c.GetConnectionState()
 			c.mu.RUnlock()
-
+			state := c.GetConnectionState()
 			if state == connectivity.TransientFailure || state == connectivity.Shutdown {
 				logger.Warn("Connection state: %s, starting reconnect", state.String())
 				go c.handleDisconnect()
@@ -161,26 +191,32 @@ func (c *Client) monitorConnection() {
 
 func (c *Client) receiveMessages() {
 	for {
-		c.mu.RLock()
-		if c.closed || c.stream == nil {
+		select {
+		case <-c.ctx.Done():
+			return
+
+		default:
+			c.mu.RLock()
+			if c.closed || c.stream == nil {
+				c.mu.RUnlock()
+				return
+			}
+			stream := c.stream
 			c.mu.RUnlock()
-			return
-		}
-		stream := c.stream
-		c.mu.RUnlock()
 
-		msg, err := stream.Recv()
-		if err != nil {
-			logger.Warn("Error receiving message: %v, starting reconnect", err)
-			go c.handleDisconnect()
-			return
-		}
+			msg, err := stream.Recv()
+			if err != nil {
+				logger.Warn("Error receiving message: %v, starting reconnect", err)
+				go c.handleDisconnect()
+				return
+			}
 
-		if c.messageHandler != nil {
-			c.messageHandler(msg)
-		}
+			if c.messageHandler != nil {
+				c.messageHandler(msg)
+			}
 
-		logger.Debug("msg:%v", msg)
+			logger.Debug("msg:%v", msg)
+		}
 	}
 }
 
@@ -207,7 +243,7 @@ func (c *Client) SetMessageHandler(handler func(*proto.DataMessage)) {
 	c.messageHandler = handler
 }
 
-func (c *Client) Run(ctx context.Context) error {
+func (c *Client) Run() error {
 	err := c.connect()
 	if err != nil {
 		logger.Error("failed to connect remote server. errmsg:%v", err)
@@ -217,7 +253,7 @@ func (c *Client) Run(ctx context.Context) error {
 outerLoop:
 	for {
 		select {
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 			break outerLoop
 		}
 	}
@@ -273,39 +309,4 @@ func (c *Client) GetConnectionState() connectivity.State {
 	}
 
 	return c.conn.GetState()
-}
-
-func New(serverAddr string, clientID string) (*Client, error) {
-	kacp := keepalive.ClientParameters{
-		Time:                10 * time.Second, // ping the server every 10 seconds
-		Timeout:             3 * time.Second,  // ping timeout
-		PermitWithoutStream: true,             // enable send a ping command
-	}
-
-	conn, err := grpc.NewClient(
-		serverAddr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithKeepaliveParams(kacp),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(10*1024*1024),
-			grpc.MaxCallSendMsgSize(10*1024*1024),
-		),
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	return &Client{
-		conn:     conn,
-		client:   proto.NewConnectionServiceClient(conn),
-		ctx:      ctx,
-		cancel:   cancel,
-		clientID: clientID,
-
-		reconnectInterval:    5 * time.Second,
-		maxReconnectAttempts: 10,
-	}, nil
 }

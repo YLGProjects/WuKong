@@ -25,12 +25,15 @@ package controller
 
 import (
 	"YLGProjects/WuKong/internal/controller/service"
+	"context"
 
 	"github.com/spf13/cobra"
 )
 
 func Run(cmd *cobra.Command, args []string) error {
-	svr := service.New(":26688", "")
+
+	ctx := context.Background()
+	svr := service.New(ctx, ":26688", "")
 
 	return svr.Run()
 }

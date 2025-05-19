@@ -26,6 +26,7 @@ package service
 import (
 	"YLGProjects/WuKong/pkg/logger"
 	"YLGProjects/WuKong/pkg/proto"
+	"context"
 	"sync"
 	"time"
 )
@@ -40,57 +41,69 @@ type Connection struct {
 	closed     bool
 }
 
-func (cc *Connection) sendMessages() {
-	for msg := range cc.SendChan {
-		if cc.isClosed() {
-			return
-		}
-
-		cc.updateLastActive()
-
-		if err := cc.Stream.Send(msg); err != nil {
-			cc.close()
-			return
-		}
-	}
-}
-
-func (cc *Connection) receiveMessages() {
+func (c *Connection) sendMessages(ctx context.Context) {
 	for {
-		if cc.isClosed() {
+		select {
+		case <-ctx.Done():
 			return
+
+		case msg := <-c.SendChan:
+			if c.isClosed() {
+				return
+			}
+
+			c.updateLastActive()
+
+			if err := c.Stream.Send(msg); err != nil {
+				c.close()
+				return
+			}
 		}
-
-		msg, err := cc.Stream.Recv()
-		if err != nil {
-			cc.close()
-			return
-		}
-
-		cc.updateLastActive()
-
-		logger.Debug("Received from %s: %s\n", cc.ClientID, msg.GetContent())
 	}
 }
 
-func (cc *Connection) updateLastActive() {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
-	cc.LastActive = time.Now()
+func (c *Connection) receiveMessages(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		default:
+			if c.isClosed() {
+				return
+			}
+
+			msg, err := c.Stream.Recv()
+			if err != nil {
+				c.close()
+				return
+			}
+
+			c.updateLastActive()
+
+			logger.Debug("Received from %s: %s\n", c.ClientID, msg.GetContent())
+		}
+	}
 }
 
-func (cc *Connection) isClosed() bool {
-	cc.mu.RLock()
-	defer cc.mu.RUnlock()
-	return cc.closed
+func (c *Connection) updateLastActive() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastActive = time.Now()
 }
 
-func (cc *Connection) close() {
-	cc.mu.Lock()
-	defer cc.mu.Unlock()
+func (c *Connection) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
+}
 
-	if !cc.closed {
-		cc.closed = true
-		close(cc.SendChan)
+func (c *Connection) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.closed {
+		c.closed = true
+		close(c.SendChan)
 	}
 }

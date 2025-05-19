@@ -40,42 +40,23 @@ import (
 type Service struct {
 	proto.UnimplementedConnectionServiceServer
 
+	ctx         context.Context
 	address     string
 	serviceID   string
 	connections map[string]*Connection
 	mu          sync.RWMutex
 }
 
-func (cm *Service) registerConnection(clientID string, conn *Connection) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if existingConn, exists := cm.connections[clientID]; exists {
-		existingConn.close()
-	}
-
-	cm.connections[clientID] = conn
-}
-
-func (cm *Service) unregisterConnection(clientID string) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	if conn, exists := cm.connections[clientID]; exists {
-		conn.close()
-		delete(cm.connections, clientID)
+func New(ctx context.Context, address string, serviceID string) *Service {
+	return &Service{
+		ctx:         ctx,
+		address:     address,
+		serviceID:   serviceID,
+		connections: make(map[string]*Connection),
 	}
 }
 
-func (cm *Service) getConnection(clientID string) (*Connection, bool) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	conn, exists := cm.connections[clientID]
-	return conn, exists
-}
-
-func extractClientInfo(ctx context.Context) (string, map[string]string, error) {
+func (s *Service) extractClientInfo(ctx context.Context) (string, map[string]string, error) {
 	clientID := fmt.Sprintf("client-%d", time.Now().UnixNano())
 
 	metadata := make(map[string]string)
@@ -86,9 +67,38 @@ func extractClientInfo(ctx context.Context) (string, map[string]string, error) {
 	return clientID, metadata, nil
 }
 
-func (cm *Service) Connect(stream proto.ConnectionService_ConnectServer) error {
+func (s *Service) registerConnection(clientID string, conn *Connection) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if existingConn, exists := s.connections[clientID]; exists {
+		existingConn.close()
+	}
+
+	s.connections[clientID] = conn
+}
+
+func (s *Service) unregisterConnection(clientID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if conn, exists := s.connections[clientID]; exists {
+		conn.close()
+		delete(s.connections, clientID)
+	}
+}
+
+func (s *Service) getConnection(clientID string) (*Connection, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	conn, exists := s.connections[clientID]
+	return conn, exists
+}
+
+func (s *Service) Connect(stream proto.ConnectionService_ConnectServer) error {
 	ctx := stream.Context()
-	clientID, metadata, err := extractClientInfo(ctx)
+	clientID, metadata, err := s.extractClientInfo(ctx)
 	if err != nil {
 		return err
 	}
@@ -101,8 +111,8 @@ func (cm *Service) Connect(stream proto.ConnectionService_ConnectServer) error {
 		Metadata:   metadata,
 	}
 
-	cm.registerConnection(clientID, conn)
-	defer cm.unregisterConnection(clientID)
+	s.registerConnection(clientID, conn)
+	defer s.unregisterConnection(clientID)
 
 	wg := &sync.WaitGroup{}
 
@@ -110,12 +120,12 @@ func (cm *Service) Connect(stream proto.ConnectionService_ConnectServer) error {
 
 	go func() {
 		defer wg.Done()
-		conn.sendMessages()
+		conn.sendMessages(s.ctx)
 	}()
 
 	go func() {
 		defer wg.Done()
-		conn.receiveMessages()
+		conn.receiveMessages(s.ctx)
 	}()
 
 	wg.Wait()
@@ -123,10 +133,10 @@ func (cm *Service) Connect(stream proto.ConnectionService_ConnectServer) error {
 }
 
 // PushMessage push a message to the client
-func (cm *Service) PushMessage(ctx context.Context, req *proto.PushRequest) (*proto.PushResponse, error) {
+func (s *Service) PushMessage(ctx context.Context, req *proto.PushRequest) (*proto.PushResponse, error) {
 	clientID := req.GetClientID()
 
-	conn, exists := cm.getConnection(clientID)
+	conn, exists := s.getConnection(clientID)
 	if !exists {
 		return &proto.PushResponse{Status: 404, Message: "Client not found"}, nil
 	}
@@ -171,12 +181,4 @@ func (s *Service) Run() error {
 
 	logger.Info("Server listening at %v", lis.Addr())
 	return svr.Serve(lis)
-}
-
-func New(address string, serviceID string) *Service {
-	return &Service{
-		address:     address,
-		serviceID:   serviceID,
-		connections: make(map[string]*Connection),
-	}
 }
