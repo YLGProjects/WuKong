@@ -21,27 +21,66 @@
  *SOFTWARE.
 **/
 
-syntax = "proto3";
-option go_package = ".;proto";
+package service
 
-message DataMessage {
-  bytes               Content   = 1;
-  uint64              Timestamp = 2;
-  map<string, string> Headers   = 3;
+import (
+	"YLGProjects/WuKong/pkg/logger"
+	"YLGProjects/WuKong/pkg/proto"
+	"context"
+	"sync"
+	"time"
+)
+
+type Connection struct {
+	ClientID   string
+	Stream     proto.TransferService_PushDataServer
+	LastActive time.Time
+	Metadata   map[string]string
+	mu         sync.RWMutex
+	closed     bool
 }
 
-message PushRequest {
-  string      ClientID = 1;
-  DataMessage Message  = 2;
+func (c *Connection) receiveMessages(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		default:
+			if c.isClosed() {
+				return
+			}
+
+			msg, err := c.Stream.Recv()
+			if err != nil {
+				c.close()
+				return
+			}
+
+			c.updateLastActive()
+
+			logger.Debug("Received from %s: %v\n", c.ClientID, msg.GetPayload())
+		}
+	}
 }
 
-message PushResponse {
-  int32  Status  = 1;
-  string Message = 2;
+func (c *Connection) updateLastActive() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastActive = time.Now()
 }
 
-service ConnectionService {
-  rpc Connect(stream DataMessage) returns (stream DataMessage);
-  rpc PushMessage(PushRequest) returns (PushResponse);
+func (c *Connection) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
 }
 
+func (c *Connection) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.closed {
+		c.closed = true
+	}
+}

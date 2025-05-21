@@ -27,7 +27,6 @@ import (
 	"YLGProjects/WuKong/pkg/constant"
 	"YLGProjects/WuKong/pkg/logger"
 	"YLGProjects/WuKong/pkg/proto"
-
 	"context"
 	"fmt"
 	"net"
@@ -39,7 +38,7 @@ import (
 )
 
 type Service struct {
-	proto.UnimplementedControllerServiceServer
+	proto.UnimplementedTransferServiceServer
 
 	ctx         context.Context
 	address     string
@@ -97,7 +96,7 @@ func (s *Service) getConnection(clientID string) (*Connection, bool) {
 	return conn, exists
 }
 
-func (s *Service) Connect(stream proto.ControllerService_ConnectServer) error {
+func (s *Service) PushData(stream proto.TransferService_PushDataServer) error {
 	ctx := stream.Context()
 	clientID, metadata, err := s.extractClientInfo(ctx)
 	if err != nil {
@@ -107,7 +106,6 @@ func (s *Service) Connect(stream proto.ControllerService_ConnectServer) error {
 	conn := &Connection{
 		ClientID:   clientID,
 		Stream:     stream,
-		SendChan:   make(chan *proto.AgentResponse, 100),
 		LastActive: time.Now(),
 		Metadata:   metadata,
 	}
@@ -115,21 +113,8 @@ func (s *Service) Connect(stream proto.ControllerService_ConnectServer) error {
 	s.registerConnection(clientID, conn)
 	defer s.unregisterConnection(clientID)
 
-	wg := &sync.WaitGroup{}
+	conn.receiveMessages(s.ctx)
 
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-		conn.sendMessages(s.ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
-		conn.receiveMessages(s.ctx)
-	}()
-
-	wg.Wait()
 	return nil
 }
 
@@ -152,7 +137,7 @@ func (s *Service) Run() error {
 		grpc.MaxSendMsgSize(constant.DefaultMaxSendMessageSize),
 	)
 
-	proto.RegisterControllerServiceServer(svr, s)
+	proto.RegisterTransferServiceServer(svr, s)
 	lis, err := net.Listen("tcp", s.address)
 	if err != nil {
 		return err

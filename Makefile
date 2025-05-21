@@ -24,7 +24,7 @@
 # base
 PROJECT  := WuKong
 PROTOC    = protoc
-PROTO_DIR = pkg/proto
+PROTO_DIR = pkg/proto/idl
 GEN_DIR   = pkg/proto
 BUILD_DIR = build
 GO_OS    ?= linux
@@ -61,16 +61,16 @@ proto: $(GO_GEN_FILES)
 agent:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=${GO_OS} GOARCH=amd64 go build -ldflags=$(BUILD_FLAG) -gcflags="all=-trimpath=$(PWD)" \
-				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/agent/*.go
+				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/agent/main.go
 
 controller:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=${GO_OS} GOARCH=amd64 go build -ldflags=$(BUILD_FLAG) -gcflags="all=-trimpath=$(PWD)" \
-				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/controller/*.go
+				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/controller/main.go
 transfer:
 	@mkdir -p $(BUILD_DIR)
 	CGO_ENABLED=0 GOOS=${GO_OS} GOARCH=amd64 go build -ldflags=$(BUILD_FLAG) -gcflags="all=-trimpath=$(PWD)" \
-				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/transfer/*.go
+				-asmflags="all=-trimpath=$(PWD)" -o $(BUILD_DIR)/$@ cmd/transfer/main.go
 
 # build protobuf to go
 $(GEN_DIR)/%.pb.go: $(PROTO_DIR)/%.proto

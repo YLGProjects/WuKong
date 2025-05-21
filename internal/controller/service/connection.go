@@ -26,6 +26,7 @@ package service
 import (
 	"YLGProjects/WuKong/pkg/logger"
 	"YLGProjects/WuKong/pkg/proto"
+
 	"context"
 	"sync"
 	"time"
@@ -33,8 +34,8 @@ import (
 
 type Connection struct {
 	ClientID   string
-	Stream     proto.ConnectionService_ConnectServer
-	SendChan   chan *proto.DataMessage
+	Stream     proto.ControllerService_ConnectServer
+	SendChan   chan *proto.AgentResponse
 	LastActive time.Time
 	Metadata   map[string]string
 	mu         sync.RWMutex
@@ -81,7 +82,7 @@ func (c *Connection) receiveMessages(ctx context.Context) {
 
 			c.updateLastActive()
 
-			logger.Debug("Received from %s: %s\n", c.ClientID, msg.GetContent())
+			logger.Debug("Received from %s: %v\n", c.ClientID, msg.GetPayload())
 		}
 	}
 }

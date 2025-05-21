@@ -24,6 +24,7 @@
 package client
 
 import (
+	"YLGProjects/WuKong/pkg/constant"
 	"YLGProjects/WuKong/pkg/logger"
 	"YLGProjects/WuKong/pkg/proto"
 	"context"
@@ -38,28 +39,26 @@ import (
 	"google.golang.org/grpc/keepalive"
 )
 
-type Client struct {
+type TransferClient struct {
 	conn                 *grpc.ClientConn
-	client               proto.ConnectionServiceClient
-	stream               proto.ConnectionService_ConnectClient
+	client               proto.TransferServiceClient
+	stream               proto.TransferService_PushDataClient
 	ctx                  context.Context
 	cancel               context.CancelFunc
-	clientID             string
+	clientId             string
 	mu                   sync.RWMutex
 	closed               bool
-	messageHandler       func(*proto.DataMessage)
 	reconnecting         bool
 	reconnectInterval    time.Duration
 	maxReconnectAttempts int
 	reconnectAttempts    int
 }
 
-func New(ctx context.Context, serverAddr string, clientID string) (*Client, error) {
-
+func NewTransferClient(ctx context.Context, serverAddr string, clientId string) (*TransferClient, error) {
 	kacp := keepalive.ClientParameters{
-		Time:                10 * time.Second, // ping the server every 10 seconds
-		Timeout:             3 * time.Second,  // ping timeout
-		PermitWithoutStream: true,             // enable send a ping command
+		Time:                constant.DefaultClientPingTime,
+		Timeout:             constant.DefaultPingTimeout,
+		PermitWithoutStream: true,
 	}
 
 	conn, err := grpc.NewClient(
@@ -78,18 +77,18 @@ func New(ctx context.Context, serverAddr string, clientID string) (*Client, erro
 
 	ctxCancel, cancel := context.WithCancel(ctx)
 
-	return &Client{
+	return &TransferClient{
 		conn:                 conn,
-		client:               proto.NewConnectionServiceClient(conn),
+		client:               proto.NewTransferServiceClient(conn),
 		ctx:                  ctxCancel,
 		cancel:               cancel,
-		clientID:             clientID,
+		clientId:             clientId,
 		reconnectInterval:    5 * time.Second,
 		maxReconnectAttempts: 10,
 	}, nil
 }
 
-func (c *Client) connect() error {
+func (c *TransferClient) connect() error {
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -97,7 +96,7 @@ func (c *Client) connect() error {
 	}
 	c.mu.Unlock()
 
-	stream, err := c.client.Connect(c.ctx)
+	stream, err := c.client.PushData(c.ctx)
 	if err != nil {
 		return err
 	}
@@ -107,8 +106,6 @@ func (c *Client) connect() error {
 	c.reconnectAttempts = 0
 	c.mu.Unlock()
 
-	go c.receiveMessages()
-
 	go c.sendConnectionEstablished()
 
 	go c.monitorConnection()
@@ -116,7 +113,7 @@ func (c *Client) connect() error {
 	return nil
 }
 
-func (c *Client) handleDisconnect() {
+func (c *TransferClient) handleDisconnect() {
 	c.mu.Lock()
 	if c.closed || c.reconnecting {
 		c.mu.Unlock()
@@ -163,7 +160,7 @@ func (c *Client) handleDisconnect() {
 	}
 }
 
-func (c *Client) monitorConnection() {
+func (c *TransferClient) monitorConnection() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -189,43 +186,8 @@ func (c *Client) monitorConnection() {
 	}
 }
 
-func (c *Client) receiveMessages() {
-	for {
-		select {
-		case <-c.ctx.Done():
-			return
-
-		default:
-			c.mu.RLock()
-			if c.closed || c.stream == nil {
-				c.mu.RUnlock()
-				return
-			}
-			stream := c.stream
-			c.mu.RUnlock()
-
-			msg, err := stream.Recv()
-			if err != nil {
-				logger.Warn("Error receiving message: %v, starting reconnect", err)
-				go c.handleDisconnect()
-				return
-			}
-
-			if c.messageHandler != nil {
-				c.messageHandler(msg)
-			}
-
-			logger.Debug("msg:%v", msg)
-		}
-	}
-}
-
-func (c *Client) sendConnectionEstablished() {
-	clientMsg := fmt.Sprintf("Client connected: %s", c.clientID)
-	msg := &proto.DataMessage{
-		Content: []byte(clientMsg),
-		Headers: map[string]string{"connection_type": "persistent"},
-	}
+func (c *TransferClient) sendConnectionEstablished() {
+	msg := &proto.TransferRequest{}
 
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -239,11 +201,7 @@ func (c *Client) sendConnectionEstablished() {
 	}
 }
 
-func (c *Client) SetMessageHandler(handler func(*proto.DataMessage)) {
-	c.messageHandler = handler
-}
-
-func (c *Client) Run() error {
+func (c *TransferClient) Run() error {
 	err := c.connect()
 	if err != nil {
 		logger.Error("failed to connect remote server. errmsg:%v", err)
@@ -261,7 +219,7 @@ outerLoop:
 	return nil
 }
 
-func (c *Client) SendMessage(content string) error {
+func (c *TransferClient) SendMessage(content string) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -273,14 +231,12 @@ func (c *Client) SendMessage(content string) error {
 		return fmt.Errorf("stream not initialized")
 	}
 
-	msg := &proto.DataMessage{
-		Content: []byte(content),
-	}
+	msg := &proto.TransferRequest{}
 
 	return c.stream.Send(msg)
 }
 
-func (c *Client) Close() {
+func (c *TransferClient) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -300,7 +256,7 @@ func (c *Client) Close() {
 }
 
 // GetConnectionState Get the state of the connection.
-func (c *Client) GetConnectionState() connectivity.State {
+func (c *TransferClient) GetConnectionState() connectivity.State {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 

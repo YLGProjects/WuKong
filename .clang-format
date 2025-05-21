@@ -1,0 +1,9 @@
+Language: Proto
+BasedOnStyle: LLVM
+ColumnLimit: 150
+IndentWidth: 4
+AlignConsecutiveDeclarations: AcrossEmptyLines
+AlignConsecutiveMacros: AcrossEmptyLines
+AlignConsecutiveAssignments: AcrossEmptyLines
+ReflowComments: true
+SortIncludes: true
