@@ -23,8 +23,17 @@
 
 package transfer
 
-import "github.com/spf13/cobra"
+import (
+	"YLGProjects/WuKong/internal/transfer/service"
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func Run(cmd *cobra.Command, args []string) error {
-	return nil
+
+	ctx := context.Background()
+	svr := service.New(ctx, ":26689", "")
+
+	return svr.Run()
 }

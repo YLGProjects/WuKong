@@ -21,23 +21,49 @@
  *SOFTWARE.
 **/
 
-package agent
+package gerrors
 
-import (
-	"YLGProjects/WuKong/internal/agent/client"
-	"YLGProjects/WuKong/pkg/logger"
-	"context"
+import "fmt"
 
-	"github.com/spf13/cobra"
+// Code global error code
+type Code int
+
+const (
+	// System Errors (1000-1999)
+	Success Code = iota + 1000
+	InternalServer
+	Timeout
+	InvalidNetAddress
+
+	// User Errors (2000-2999)
+	UserNotFound = iota + 2000
+	UserDisabled
+	UserAlreadyExists
+	InvalidConfig
 )
 
-func Run(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
+// GError global error type
+type GError struct {
+	code    Code
+	message string
+}
 
-	client, err := client.NewControllerClient(ctx, "127.0.0.1:26688", "client-12345")
-	if err != nil {
-		logger.Fatal("Failed to create client: %v", err)
-	}
+// New create a new GError object
+func New(c Code, msg string) *GError {
+	return &GError{code: c, message: msg}
+}
 
-	return client.Run()
+// Code only return error code
+func (g *GError) Code() Code {
+	return g.code
+}
+
+// Message only return message
+func (g *GError) Message() string {
+	return g.message
+}
+
+// Error error interface method
+func (g *GError) Error() string {
+	return fmt.Sprintf("code:%d, errmsg:%s", g.code, g.message)
 }

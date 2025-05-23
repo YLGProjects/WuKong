@@ -21,23 +21,66 @@
  *SOFTWARE.
 **/
 
-syntax = "proto3";
+package service
 
-option go_package = ".;comm";
+import (
+	"YLGProjects/WuKong/pkg/logger"
+	"YLGProjects/WuKong/pkg/proto"
+	"context"
+	"sync"
+	"time"
+)
 
-enum MessageType
-{
-   Heartbeat = 0;
+type Connection struct {
+	ClientID   string
+	Stream     proto.TransferService_PushDataServer
+	LastActive time.Time
+	Metadata   map[string]string
+	mu         sync.RWMutex
+	closed     bool
 }
 
-message MessageData
-{
-  MessageType type = 1;
-  bytes       payload = 2;
+func (c *Connection) receiveMessages(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
 
+		default:
+			if c.isClosed() {
+				return
+			}
+
+			msg, err := c.Stream.Recv()
+			if err != nil {
+				c.close()
+				return
+			}
+
+			c.updateLastActive()
+
+			logger.Debug("Received from %s: %v\n", c.ClientID, msg.GetPayload())
+		}
+	}
 }
 
-service StreamService
-{
-   rpc StreamChannel(stream MessageData) returns (stream MessageData){}
+func (c *Connection) updateLastActive() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.LastActive = time.Now()
+}
+
+func (c *Connection) isClosed() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.closed
+}
+
+func (c *Connection) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.closed {
+		c.closed = true
+	}
 }

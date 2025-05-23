@@ -33,6 +33,6 @@ var VersionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print Version Information",
 	Run: func(cmd *cobra.Command, args []string) {
-		version.Print("WuKong Transfer Server")
+		version.Print("WuKong Controller Server")
 	},
 }

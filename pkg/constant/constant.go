@@ -21,23 +21,15 @@
  *SOFTWARE.
 **/
 
-package agent
+package constant
 
-import (
-	"YLGProjects/WuKong/internal/agent/client"
-	"YLGProjects/WuKong/pkg/logger"
-	"context"
+import "time"
 
-	"github.com/spf13/cobra"
+const (
+	DefaultClientPingTime        = 5 * time.Second
+	DefaultServerPingTime        = 5 * time.Minute
+	DefaultPingTimeout           = 10 * time.Second
+	DefaultKeepaliveMiniTime     = 5 * time.Minute
+	DefaultMaxReceiveMessageSize = 1024 * 1024 * 10
+	DefaultMaxSendMessageSize    = 1024 * 1024 * 10
 )
-
-func Run(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-
-	client, err := client.NewControllerClient(ctx, "127.0.0.1:26688", "client-12345")
-	if err != nil {
-		logger.Fatal("Failed to create client: %v", err)
-	}
-
-	return client.Run()
-}

@@ -19,25 +19,23 @@
  *LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
  *OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  *SOFTWARE.
-**/
+ **/
 
-package agent
+syntax             = "proto3";
+option  go_package = ".;proto";
 
-import (
-	"YLGProjects/WuKong/internal/agent/client"
-	"YLGProjects/WuKong/pkg/logger"
-	"context"
+message AgentRequest {
+    string              clientId = 1;
+    map<string, string> headers  = 2;
+    bytes               payload  = 3;
+}
 
-	"github.com/spf13/cobra"
-)
+message AgentResponse {
+    int32  code    = 1;
+    string errmsg  = 2;
+    bytes  payload = 4;
+}
 
-func Run(cmd *cobra.Command, args []string) error {
-	ctx := context.Background()
-
-	client, err := client.NewControllerClient(ctx, "127.0.0.1:26688", "client-12345")
-	if err != nil {
-		logger.Fatal("Failed to create client: %v", err)
-	}
-
-	return client.Run()
+service ControllerService {
+    rpc Connect(stream AgentRequest) returns (stream AgentResponse) {}
 }
