@@ -66,8 +66,8 @@ func NewTransferClient(ctx context.Context, serverAddr string, clientId string) 
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithKeepaliveParams(kacp),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(10*1024*1024),
-			grpc.MaxCallSendMsgSize(10*1024*1024),
+			grpc.MaxCallRecvMsgSize(constant.DefaultMaxReceiveMessageSize),
+			grpc.MaxCallSendMsgSize(constant.DefaultMaxSendMessageSize),
 		),
 	)
 
@@ -83,8 +83,8 @@ func NewTransferClient(ctx context.Context, serverAddr string, clientId string) 
 		ctx:                  ctxCancel,
 		cancel:               cancel,
 		clientId:             clientId,
-		reconnectInterval:    5 * time.Second,
-		maxReconnectAttempts: 10,
+		reconnectInterval:    constant.DefaultClientReconnectInterval,
+		maxReconnectAttempts: constant.DefaultClientMaxReconnectAttempts,
 	}, nil
 }
 
@@ -219,7 +219,7 @@ outerLoop:
 	return nil
 }
 
-func (c *TransferClient) SendMessage(content string) error {
+func (c *TransferClient) SendMessage(content []byte) error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -231,7 +231,10 @@ func (c *TransferClient) SendMessage(content string) error {
 		return fmt.Errorf("stream not initialized")
 	}
 
-	msg := &proto.TransferRequest{}
+	msg := &proto.TransferRequest{
+		ClientId: c.clientId,
+		Payload:  content,
+	}
 
 	return c.stream.Send(msg)
 }

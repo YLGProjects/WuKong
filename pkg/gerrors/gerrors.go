@@ -29,17 +29,18 @@ import "fmt"
 type Code int
 
 const (
-	// System Errors (1000-1999)
-	Success Code = iota + 1000
-	InternalServer
+	Unknown Code = iota - 2
+	Failure
+	Success
 	Timeout
-	InvalidNetAddress
-
-	// User Errors (2000-2999)
-	UserNotFound = iota + 2000
-	UserDisabled
-	UserAlreadyExists
+	InternalServer
+	InvalidParameter
 	InvalidConfig
+	InvalidNetAddress
+	NotFound
+	AlreadyExists
+	OperationFailure
+	ComponentFailure
 )
 
 // GError global error type

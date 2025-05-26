@@ -24,6 +24,7 @@
 package client
 
 import (
+	"YLGProjects/WuKong/pkg/constant"
 	"YLGProjects/WuKong/pkg/logger"
 	"YLGProjects/WuKong/pkg/proto"
 	"context"
@@ -56,9 +57,9 @@ type ControllerClient struct {
 func NewControllerClient(ctx context.Context, serverAddr string, clientId string) (*ControllerClient, error) {
 
 	kacp := keepalive.ClientParameters{
-		Time:                10 * time.Second, // ping the server every 10 seconds
-		Timeout:             3 * time.Second,  // ping timeout
-		PermitWithoutStream: true,             // enable send a ping command
+		Time:                constant.DefaultClientPingTime,
+		Timeout:             constant.DefaultPingTimeout,
+		PermitWithoutStream: true,
 	}
 
 	conn, err := grpc.NewClient(
@@ -66,8 +67,8 @@ func NewControllerClient(ctx context.Context, serverAddr string, clientId string
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithKeepaliveParams(kacp),
 		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(10*1024*1024),
-			grpc.MaxCallSendMsgSize(10*1024*1024),
+			grpc.MaxCallRecvMsgSize(constant.DefaultMaxReceiveMessageSize),
+			grpc.MaxCallSendMsgSize(constant.DefaultMaxSendMessageSize),
 		),
 	)
 
@@ -83,8 +84,8 @@ func NewControllerClient(ctx context.Context, serverAddr string, clientId string
 		ctx:                  ctxCancel,
 		cancel:               cancel,
 		clientId:             clientId,
-		reconnectInterval:    5 * time.Second,
-		maxReconnectAttempts: 10,
+		reconnectInterval:    constant.DefaultClientReconnectInterval,
+		maxReconnectAttempts: constant.DefaultClientMaxReconnectAttempts,
 	}, nil
 }
 
