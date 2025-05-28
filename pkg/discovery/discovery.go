@@ -25,85 +25,142 @@ package discovery
 
 import (
 	"YLGProjects/WuKong/pkg/gerrors"
+	"YLGProjects/WuKong/pkg/logger"
 	"context"
 	"strings"
+	"sync"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 )
 
 type Discovery struct {
+	exit   chan struct{}
+	wg     sync.WaitGroup
 	client *clientv3.Client
 }
 
-func NewDiscovery(c *clientv3.Client) (*Discovery, error) {
-	return nil, nil
-}
-
-func (d *Discovery) Watch(ctx context.Context, key string) error {
+func (d *Discovery) Watch(ctx context.Context, key string) (chan *Event, error) {
 
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return gerrors.New(gerrors.InvalidParameter, "the watched key is required")
+		return nil, gerrors.New(gerrors.InvalidParameter, "the watched key is required")
 	}
 
 	watchChan := d.client.Watch(ctx, key)
+	eventChan := make(chan *Event, 1024)
 
-	for watchResp := range watchChan {
-		for _, event := range watchResp.Events {
-			switch event.Type {
-			case clientv3.EventTypePut:
-			case clientv3.EventTypeDelete:
-			default:
+	d.wg.Add(1)
+
+	go func(ctx context.Context) {
+
+		defer d.wg.Done()
+
+		for {
+			select {
+			case <-d.exit:
+				logger.Info("exit the watcher. key:%s", key)
+				return
+
+			case <-ctx.Done():
+				logger.Info("exit the watcher. key:%s", key)
+				return
+
+			case watchResp := <-watchChan:
+				for _, event := range watchResp.Events {
+					switch event.Type {
+					case clientv3.EventTypePut:
+						event := &Event{
+							Type:  EventTypePut,
+							Key:   string(event.Kv.Key),
+							Value: []byte(event.Kv.Value),
+						}
+						eventChan <- event
+
+					case clientv3.EventTypeDelete:
+						event := &Event{
+							Type:  EventTypeDelete,
+							Key:   string(event.Kv.Key),
+							Value: []byte(event.Kv.Value),
+						}
+						eventChan <- event
+					}
+				}
 			}
 		}
-	}
+	}(ctx)
 
-	return nil
+	return eventChan, nil
 }
 
-func (d *Discovery) WatchWithPrefix(ctx context.Context, keyPrefix string) error {
+func (d *Discovery) WatchWithPrefix(ctx context.Context, keyPrefix string) (chan *Event, error) {
 
 	keyPrefix = strings.TrimSpace(keyPrefix)
 	if keyPrefix == "" {
-		return gerrors.New(gerrors.InvalidParameter, "the watched key is required")
+		return nil, gerrors.New(gerrors.InvalidParameter, "the watched key is required")
 	}
 
 	watchChan := d.client.Watch(ctx, keyPrefix, clientv3.WithPrefix())
+	eventChan := make(chan *Event, 1024)
 
-	for watchResp := range watchChan {
-		for _, event := range watchResp.Events {
-			switch event.Type {
-			case clientv3.EventTypePut:
-			case clientv3.EventTypeDelete:
-			default:
+	go func(ctx context.Context) {
+		for {
+			select {
+			case <-d.exit:
+				logger.Info("exit the watcher. key prefix:%s", keyPrefix)
+				return
+
+			case <-ctx.Done():
+				logger.Info("exit the watcher. key prefix:%s", keyPrefix)
+				return
+
+			case watchResp := <-watchChan:
+				for _, event := range watchResp.Events {
+					switch event.Type {
+					case clientv3.EventTypePut:
+						event := &Event{
+							Type:  EventTypePut,
+							Key:   string(event.Kv.Key),
+							Value: []byte(event.Kv.Value),
+						}
+						eventChan <- event
+
+					case clientv3.EventTypeDelete:
+						event := &Event{
+							Type:  EventTypeDelete,
+							Key:   string(event.Kv.Key),
+							Value: []byte(event.Kv.Value),
+						}
+						eventChan <- event
+					}
+				}
 			}
 		}
-	}
+	}(ctx)
 
-	return nil
+	return eventChan, nil
 }
 
-func (d *Discovery) Get(ctx context.Context, key string) (string, error) {
+func (d *Discovery) Get(ctx context.Context, key string) ([]byte, error) {
 
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return "", gerrors.New(gerrors.InvalidParameter, "the key prefix is required")
+		return nil, gerrors.New(gerrors.InvalidParameter, "the key prefix is required")
 	}
 
 	resp, err := d.client.Get(ctx, key)
 	if err != nil {
-		return "", gerrors.New(gerrors.ComponentFailure, err.Error())
+		return nil, gerrors.New(gerrors.ComponentFailure, err.Error())
 	}
 
-	value := ""
+	var value []byte
 	for _, kv := range resp.Kvs {
-		value = string(kv.Value)
+		value = []byte(kv.Value)
 	}
 
 	return value, nil
 }
 
-func (d *Discovery) GetWithPrefix(ctx context.Context, keyPrefix string) (map[string]string, error) {
+func (d *Discovery) GetWithPrefix(ctx context.Context, keyPrefix string) (map[string][]byte, error) {
 
 	keyPrefix = strings.TrimSpace(keyPrefix)
 	if keyPrefix == "" {
@@ -115,10 +172,16 @@ func (d *Discovery) GetWithPrefix(ctx context.Context, keyPrefix string) (map[st
 		return nil, gerrors.New(gerrors.ComponentFailure, err.Error())
 	}
 
-	kvs := make(map[string]string, len(resp.Kvs))
+	kvs := make(map[string][]byte, len(resp.Kvs))
 	for _, kv := range resp.Kvs {
-		kvs[string(kv.Key)] = string(kv.Value)
+		kvs[string(kv.Key)] = []byte(kv.Value)
 	}
 
 	return kvs, nil
+}
+
+func (d *Discovery) Close() {
+
+	close(d.exit)
+	d.wg.Wait()
 }

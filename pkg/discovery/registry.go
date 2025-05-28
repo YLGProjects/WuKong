@@ -27,6 +27,7 @@ import (
 	"YLGProjects/WuKong/pkg/gerrors"
 	"YLGProjects/WuKong/pkg/logger"
 	"context"
+	"fmt"
 	"math"
 	"strings"
 	"sync"
@@ -43,11 +44,9 @@ type Registry struct {
 	mu            sync.Mutex
 	client        *clientv3.Client
 	leaseId       clientv3.LeaseID
+	exit          chan struct{}
+	eventChan     chan *Event
 	keepAliveChan <-chan *clientv3.LeaseKeepAliveResponse
-}
-
-func NewRegistry(c *clientv3.Client, serviceId string, ttl int64) (*Registry, error) {
-	return nil, nil
 }
 
 func (r *Registry) grant(ctx context.Context) error {
@@ -71,14 +70,18 @@ func (r *Registry) grant(ctx context.Context) error {
 	return nil
 }
 
-func (r *Registry) monitorKeepalive(ctx context.Context) error {
+func (r *Registry) monitorKeepalive(ctx context.Context) {
 
 	defer r.wg.Done()
 
 	for {
 		select {
+		case <-r.exit:
+			logger.Info("exit registry monitor keepalive")
+			return
 		case <-ctx.Done():
-			return nil
+			logger.Info("exit registry monitor keepalive")
+			return
 
 		case resp, ok := <-r.keepAliveChan:
 			if !ok {
@@ -87,8 +90,6 @@ func (r *Registry) monitorKeepalive(ctx context.Context) error {
 					defer r.wg.Done()
 					r.recoverLease(ctx)
 				}(ctx)
-
-				return gerrors.New(gerrors.ComponentFailure, "service registry is offline")
 			}
 
 			logger.Debug("keepalive, ID:%v", resp.ID)
@@ -97,7 +98,7 @@ func (r *Registry) monitorKeepalive(ctx context.Context) error {
 
 }
 
-func (r *Registry) checkLeaseTTL(ctx context.Context) error {
+func (r *Registry) checkLeaseTTL(ctx context.Context) {
 
 	defer r.wg.Done()
 
@@ -105,20 +106,27 @@ func (r *Registry) checkLeaseTTL(ctx context.Context) error {
 	ticker := time.NewTicker(ttl * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		ttlResp, err := r.client.TimeToLive(ctx, r.leaseId)
-		if err != nil || ttlResp.TTL <= 0 {
-			r.wg.Add(1)
-			go func(ctx context.Context) {
-				defer r.wg.Done()
-				r.recoverLease(ctx)
-			}(ctx)
+	for {
+		select {
+		case <-r.exit:
+			logger.Info("exit registry check lease ttl")
+			return
 
-			return gerrors.New(gerrors.ComponentFailure, "service registry is offline")
+		case <-ctx.Done():
+			logger.Info("exit registry check lease ttl")
+			return
+
+		case <-ticker.C:
+			ttlResp, err := r.client.TimeToLive(ctx, r.leaseId)
+			if err != nil || ttlResp.TTL <= 0 {
+				r.wg.Add(1)
+				go func(ctx context.Context) {
+					defer r.wg.Done()
+					r.recoverLease(ctx)
+				}(ctx)
+			}
 		}
 	}
-
-	return nil
 }
 
 func (r *Registry) recoverLease(ctx context.Context) error {
@@ -137,16 +145,13 @@ func (r *Registry) recoverLease(ctx context.Context) error {
 	return nil
 }
 
-func (r *Registry) RegisterService(ctx context.Context, serviceId, value string) error {
+func (r *Registry) SetService(ctx context.Context, value string) error {
 
-	serviceId = strings.TrimSpace(serviceId)
 	value = strings.TrimSpace(value)
 
-	if serviceId == "" {
+	if r.serviceId == "" {
 		return gerrors.New(gerrors.InvalidParameter, "serviceId is required")
 	}
-
-	r.serviceId = serviceId
 
 	_, err := r.client.Put(ctx, r.rootKey, value, clientv3.WithLease(r.leaseId))
 	if err != nil {
@@ -154,6 +159,10 @@ func (r *Registry) RegisterService(ctx context.Context, serviceId, value string)
 	}
 
 	return nil
+}
+
+func (r *Registry) Events() chan *Event {
+	return r.eventChan
 }
 
 func (r *Registry) Set(ctx context.Context, key, value string) error {
@@ -165,6 +174,10 @@ func (r *Registry) Set(ctx context.Context, key, value string) error {
 		return gerrors.New(gerrors.InvalidParameter, "key is required")
 	}
 
+	if !strings.HasPrefix(key, r.rootKey) {
+		key = fmt.Sprintf("%s/%s", r.rootKey, key)
+	}
+
 	_, err := r.client.Put(ctx, key, value, clientv3.WithLease(r.leaseId))
 	if err != nil {
 		return gerrors.New(gerrors.OperationFailure, err.Error())
@@ -174,5 +187,6 @@ func (r *Registry) Set(ctx context.Context, key, value string) error {
 }
 
 func (r *Registry) Close() {
+	close(r.exit)
 	r.wg.Wait()
 }
