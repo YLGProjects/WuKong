@@ -183,5 +183,6 @@ func (d *Discovery) GetWithPrefix(ctx context.Context, keyPrefix string) (map[st
 func (d *Discovery) Close() {
 
 	close(d.exit)
+	d.exit = nil
 	d.wg.Wait()
 }

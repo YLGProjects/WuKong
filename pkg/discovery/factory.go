@@ -99,6 +99,8 @@ func NewClient(opt *ClientOptions) (*clientv3.Client, error) {
 	}
 
 	cli, err := clientv3.New(clientv3.Config{
+		Username:             opt.User,
+		Password:             opt.Password,
 		Endpoints:            opt.Endpoints,
 		DialTimeout:          opt.DialTimeout,
 		AutoSyncInterval:     opt.AutoSyncInterval,
@@ -140,5 +142,15 @@ func NewRegistry(c *clientv3.Client, serviceId string, ttl int64) (*Registry, er
 }
 
 func NewDiscovery(c *clientv3.Client) (*Discovery, error) {
-	return nil, nil
+
+	if c == nil {
+		return nil, gerrors.New(gerrors.InvalidParameter, "client is required")
+	}
+
+	discovery := &Discovery{
+		exit:   make(chan struct{}),
+		client: c,
+	}
+
+	return discovery, nil
 }

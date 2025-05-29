@@ -63,6 +63,10 @@ func (r *Registry) grant(ctx context.Context) error {
 	}
 	r.keepAliveChan = keepAliveChan
 
+	if r.exit == nil {
+		r.exit = make(chan struct{})
+	}
+
 	r.wg.Add(2)
 	go r.monitorKeepalive(ctx)
 	go r.checkLeaseTTL(ctx)
@@ -79,11 +83,12 @@ func (r *Registry) monitorKeepalive(ctx context.Context) {
 		case <-r.exit:
 			logger.Info("exit registry monitor keepalive")
 			return
+
 		case <-ctx.Done():
 			logger.Info("exit registry monitor keepalive")
 			return
 
-		case resp, ok := <-r.keepAliveChan:
+		case _, ok := <-r.keepAliveChan:
 			if !ok {
 				r.wg.Add(1)
 				go func(ctx context.Context) {
@@ -91,8 +96,6 @@ func (r *Registry) monitorKeepalive(ctx context.Context) {
 					r.recoverLease(ctx)
 				}(ctx)
 			}
-
-			logger.Debug("keepalive, ID:%v", resp.ID)
 		}
 	}
 
@@ -104,6 +107,7 @@ func (r *Registry) checkLeaseTTL(ctx context.Context) {
 
 	ttl := time.Duration(math.Floor(float64(r.ttl) / 2))
 	ticker := time.NewTicker(ttl * time.Second)
+
 	defer ticker.Stop()
 
 	for {
@@ -137,9 +141,7 @@ func (r *Registry) recoverLease(ctx context.Context) error {
 	ttlResp, err := r.client.Lease.TimeToLive(ctx, r.leaseId)
 	if err == nil && ttlResp.TTL > 0 {
 		r.wg.Add(2)
-		go r.monitorKeepalive(ctx)
-		go r.checkLeaseTTL(ctx)
-		return nil
+		return r.grant(ctx)
 	}
 
 	return nil
@@ -151,6 +153,12 @@ func (r *Registry) SetService(ctx context.Context, value string) error {
 
 	if r.serviceId == "" {
 		return gerrors.New(gerrors.InvalidParameter, "serviceId is required")
+	}
+
+	if r.leaseId == 0 {
+		if err := r.grant(ctx); err != nil {
+			return err
+		}
 	}
 
 	_, err := r.client.Put(ctx, r.rootKey, value, clientv3.WithLease(r.leaseId))
@@ -188,5 +196,6 @@ func (r *Registry) Set(ctx context.Context, key, value string) error {
 
 func (r *Registry) Close() {
 	close(r.exit)
+	r.exit = nil
 	r.wg.Wait()
 }
